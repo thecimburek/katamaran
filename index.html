@@ -175,6 +175,8 @@ body:has(dialog[open]){overflow:hidden}
 #g-stage{min-height:360px;display:flex;align-items:center}
 #g-stage svg{flex:1}
 .stage-room{background:#EBD3A6;padding:0;overflow:hidden}
+.stage-sea{background:#0F4C6E;padding:0;overflow:hidden}
+.stage-sea canvas{display:block;width:100%;touch-action:none}
 .stage-room canvas{display:block;width:100%;touch-action:none}
 .overlay.count{background:#140F3A80}
 .ov-count{font-size:4.5rem!important;font-weight:800!important;line-height:1;color:#FFC93C}
@@ -399,7 +401,7 @@ body:has(dialog[open]){overflow:hidden}
       '<header class="top"><div><h1>Katamarán 2027</h1>' +
       '<p class="lede">Kdo dá ANO, nalodí se a jde se slavit. Kdo zatím ne, mává ze břehu.</p></div>' +
       '<div class="top-side"><p class="tally">Na palubě <b>' + yes.length + '</b> z ' + people.length + '</p>' +
-      '<div class="game-links"><button type="button" class="game-link" data-open="panak">🥃 Nalej panáka</button><button type="button" class="game-link" data-open="utek">🏃 Uteč před manželkou</button></div></div></header>' +
+      '<div class="game-links"><button type="button" class="game-link" data-open="panak">🥃 Nalej panáka</button><button type="button" class="game-link" data-open="utek">🏃 Uteč před manželkou</button><button type="button" class="game-link" data-open="chyt">⚓ Chyť Hasbullu</button></div></div></header>' +
       '<section class="scene">' +
         '<div class="sky" aria-label="Na lodi"><div class="moon"></div>' +
           '<h2 class="zone-title">Na lodi <span>(' + yes.length + ')</span></h2>' +
@@ -482,7 +484,7 @@ body:has(dialog[open]){overflow:hidden}
   var iv = null;
 
   var stage = $('g-stage'), overlay = $('g-overlay'), svg = $('g-svg');
-  var BOTTOM = 266, RIM = 132, H = BOTTOM - RIM, TOL = 6, SAFETY = 8000;
+  var BOTTOM = 266, RIM = 132, H = BOTTOM - RIM, TOL = 4, SAFETY = 8000;
   var pick1 = names.indexOf('Tomáš Cimburek') >= 0 ? 'Tomáš Cimburek' : (names[0] || '');
   var pick2 = names.filter(function(n){ return n !== pick1; })[0] || '';
   var mode = 'setup', target = 70, t = 0, last = 0, raceStart = 0, sleepTimer = null;
@@ -603,7 +605,7 @@ body:has(dialog[open]){overflow:hidden}
       setDrink(i, rnd(DRINKS));
     });
     var r = Math.random(), npc = sides[1];
-    npc.stopAt = r < 0.12 ? target + TOL * (1.3 + Math.random()) : r < 0.24 ? target - TOL * (1.3 + Math.random()) : target + (Math.random() * 2 - 1) * TOL * 0.95;
+    npc.stopAt = r < 0.07 ? target + TOL * (1.2 + Math.random() * 0.6) : target + (Math.random() * 2 - 1) * TOL * 0.28;
     $('g-round').textContent = short(pick1) + ' vs. ' + short(pick2) + ' – kdo bude blíž rysce?';
     $('g-msg').textContent = '';
     scoreline(); paint();
@@ -628,7 +630,7 @@ body:has(dialog[open]){overflow:hidden}
     setTimeout(function(){
       var npc = sides[1];
       if (mode === 'race' && !npc.done){ npc.holding = true; npc.started = true; }
-    }, 250 + Math.random() * 400);
+    }, 150 + Math.random() * 200);
     clearTimeout(sleepTimer);
     sleepTimer = setTimeout(function(){
       var me = sides[0];
@@ -707,9 +709,12 @@ body:has(dialog[open]){overflow:hidden}
       var want = s.holding ? -24 : -55;
       s.angle += (want - s.angle) * Math.min(1, dt * 12);
       if (s.holding && mode === 'race'){
-        s.level += 34 * (1 + 0.25 * Math.sin(t * 6 + s.phase)) * dt;
-        if (s.level >= 100){ s.level = 100; stop(i); }
-        else if (s.npc && s.level >= s.stopAt) stop(i);
+        var inc = 42 * (1 + 0.35 * Math.sin(t * 7 + s.phase)) * dt;
+        if (s.npc && s.level + inc >= s.stopAt){ s.level = Math.min(100, s.stopAt); stop(i); }
+        else {
+          s.level += inc;
+          if (s.level >= 100){ s.level = 100; stop(i); }
+        }
       }
     });
     paint();
@@ -1104,6 +1109,464 @@ body:has(dialog[open]){overflow:hidden}
   resize();
   setupScreen();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ if (mode !== 'play') draw(); });
+  requestAnimationFrame(tick);
+})();
+</script>
+<dialog class="game-modal" id="chyt" aria-labelledby="c-title"><section class="game-wrap">
+  <div class="game">
+    <button type="button" class="modal-x" data-close aria-label="Zavřít">✕</button>
+    <div class="game-head">
+      <h2 id="c-title">Chyť Hasbullu</h2>
+      <p class="game-score" id="c-scoreline"></p>
+    </div>
+    <p class="game-round" id="c-round">Hasbulla ukradl klukům rum. Chyť ho 5× za 45 sekund.</p>
+    <div class="stage stage-sea" id="c-stage" tabindex="0" aria-label="Chyť Hasbullu: táhni síťku prstem nebo šipkami">
+      <canvas id="c-canvas"></canvas>
+      <div class="overlay" id="c-overlay"></div>
+    </div>
+    <p class="game-msg" id="c-msg" aria-live="polite"></p>
+  </div>
+</section></dialog>
+<script id="chyt-js">
+(function(){
+  var NEED = 5, DURATION = 45, HOLD = 0.6;
+  var TAUNTS = [
+    ['Иди нахуй, лох!', 'Jdi do prdele, lůzře!'], ['Хуй поймаешь!', 'Ani hovno mě nechytíš!'],
+    ['Ёб твою мать!', 'Jebu ti mámu!'], ['Сука блядь, медленно!', 'Kurva drát, pomalu!'],
+    ['Ты чё, долбоёб?', 'Seš úplnej kokot?'], ['Пошёл нахуй!', 'Táhni do píči!'],
+    ['Мудак ебаный!', 'Ty zkurvenej debile!'], ['Жопу подними!', 'Zvedni prdel!'],
+    ['Мой ром, пиздюк!', 'Můj rum, ty zmrde!'], ['Хуй тебе, а не ром!', 'Péro ti, ne rum!'],
+    ['Ебать ты лох!', 'Do píči, ty seš lůzr!'], ['Медленный, как говно!', 'Pomalej jak hovno!'],
+    ['Соси, бля!', 'Cucej, kurva!']
+  ];
+  var $ = function(id){ return document.getElementById(id); };
+  var iv = null;
+  var stage = $('c-stage'), canvas = $('c-canvas'), ctx = canvas.getContext('2d'), overlay = $('c-overlay');
+  var W = 360, H = 440, dpr = 1, deck, obstacles = [];
+  var mode = 'setup', elapsed = 0, penalty = 0, caught = 0, prog = 0, last = 0, t = 0, flash = 0;
+  var net = { x: 0, y: 0, tx: 0, ty: 0, r: 34 };
+  var keys = {}, gull = null, gullIn = 6, best = 0;
+  var s = null;
+  try { best = +localStorage.getItem('katamaran-chyt-best') || 0; } catch(e){}
+
+  function rr(x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function dist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  function layout(){
+    deck = { x: W * 0.07, y: H * 0.05, w: W * 0.86, h: H * 0.9 };
+    var cx = W / 2;
+    obstacles = [
+      { type: 'cabin', x: cx - deck.w * 0.22, y: deck.y + deck.h * 0.46, w: deck.w * 0.44, h: deck.h * 0.2, hide: true },
+      { type: 'keg', x: deck.x + deck.w * 0.2, y: deck.y + deck.h * 0.82, r: 22, hide: true },
+      { type: 'crate', x: deck.x + deck.w * 0.72, y: deck.y + deck.h * 0.25, w: 42, h: 42, hide: true },
+      { type: 'mast', x: cx, y: deck.y + deck.h * 0.4, r: 7, hide: false },
+      { type: 'ring', x: deck.x + deck.w * 0.8, y: deck.y + deck.h * 0.84, r: 16, hide: false }
+    ];
+  }
+
+  function resize(){
+    if (!stage.clientWidth){ if (!deck) layout(); return; }
+    dpr = window.devicePixelRatio || 1;
+    W = stage.clientWidth;
+    H = Math.round(Math.min(560, Math.max(420, W * 1.2)));
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    layout();
+    if (s){ s.x = clamp(s.x, deck.x + 16, deck.x + deck.w - 16); s.y = clamp(s.y, deck.y + 16, deck.y + deck.h - 16); }
+    if (mode !== 'play') draw();
+  }
+
+  function inside(p, pad){
+    pad = pad || 16;
+    return p.x > deck.x + pad && p.x < deck.x + deck.w - pad && p.y > deck.y + pad && p.y < deck.y + deck.h - pad;
+  }
+  function hidden(p){
+    return obstacles.some(function(o){
+      if (!o.hide) return false;
+      if (o.r) return Math.hypot(p.x - o.x, p.y - o.y) < o.r - 2;
+      return p.x > o.x + 4 && p.x < o.x + o.w - 4 && p.y > o.y + 4 && p.y < o.y + o.h - 4;
+    });
+  }
+  function hideSpot(){
+    var o = obstacles.filter(function(o){ return o.hide; })[Math.floor(Math.random() * 3)];
+    return o.r ? { x: o.x, y: o.y } : { x: o.x + o.w * (0.25 + Math.random() * 0.5), y: o.y + o.h / 2 };
+  }
+  function randPoint(){
+    return { x: deck.x + 24 + Math.random() * (deck.w - 48), y: deck.y + 24 + Math.random() * (deck.h - 48) };
+  }
+
+  // ---------- námořník ----------
+  function lvl(){ return Math.min(caught, NEED - 1); }
+  function spawnSailor(){
+    var p, tries = 0;
+    do { p = randPoint(); tries++; } while (tries < 30 && (Math.hypot(p.x - net.x, p.y - net.y) < W * 0.45 || hidden(p)));
+    s = { x: p.x, y: p.y, dir: 0, mode: 'wander', modeT: 0, target: randPoint(), dashCd: 0.8, dash: { x: 0, y: 0 }, say: '', sayT: 0, step: 0 };
+  }
+
+  function fleeDir(spd){
+    var base = Math.atan2(s.y - net.y, s.x - net.x), bestA = base, bestD = -1;
+    for (var k = 0; k < 12; k++){
+      var off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 8) + (Math.random() - .5) * 0.5;
+      var a = base + off, ex = s.x + Math.cos(a) * spd * 0.3, ey = s.y + Math.sin(a) * spd * 0.3;
+      if (inside({ x: ex, y: ey }, 18)){ return a; }
+      var dd = Math.hypot(clamp(ex, deck.x + 18, deck.x + deck.w - 18) - net.x, clamp(ey, deck.y + 18, deck.y + deck.h - 18) - net.y);
+      if (dd > bestD){ bestD = dd; bestA = a; }
+    }
+    return bestA;
+  }
+
+  function move(a, spd, dt){
+    s.dir = a;
+    s.x = clamp(s.x + Math.cos(a) * spd * dt, deck.x + 16, deck.x + deck.w - 16);
+    s.y = clamp(s.y + Math.sin(a) * spd * dt, deck.y + 16, deck.y + deck.h - 16);
+    s.step += spd * dt * 0.12;
+  }
+
+  function taunt(){ s.say = TAUNTS[Math.floor(Math.random() * TAUNTS.length)]; s.sayT = 1.3; }
+
+  function updateSailor(dt){
+    var L = lvl(), base = 72 + 20 * L, d = Math.hypot(net.x - s.x, net.y - s.y), fear = 100 + 14 * L;
+    s.dashCd -= dt; s.modeT -= dt; s.sayT -= dt;
+    if (s.sayT < -2 && Math.random() < dt * 0.5) taunt();
+    if (s.mode === 'dash'){
+      move(Math.atan2(s.dash.y, s.dash.x), 330 + 45 * L, dt);
+      if (s.modeT <= 0){ s.mode = 'tired'; s.modeT = Math.max(0.3, 0.6 - 0.07 * L); }
+      return;
+    }
+    if (s.mode === 'tired'){
+      move(fleeDir(base), base * 0.35, dt);
+      if (s.modeT <= 0) s.mode = 'wander';
+      return;
+    }
+    var isHidden = hidden(s);
+    if (d < fear && s.dashCd <= 0 && !(s.mode === 'hide' && isHidden && s.modeT > 0)){
+      var a = fleeDir(330);
+      s.dash = { x: Math.cos(a), y: Math.sin(a) };
+      s.mode = 'dash'; s.modeT = 0.22 + 0.02 * L; s.dashCd = Math.max(0.75, 1.55 - 0.18 * L);
+      if (Math.random() < 0.7) taunt();
+      return;
+    }
+    if (d < fear * 0.8 && !(s.mode === 'hide' && isHidden && s.modeT > 0)){
+      move(fleeDir(base), base * 1.2, dt);
+      s.mode = 'wander'; s.target = randPoint();
+      return;
+    }
+    if (s.mode === 'hide' || s.mode === 'pause'){
+      if (s.modeT <= 0){ s.mode = 'wander'; s.target = randPoint(); }
+      return;
+    }
+    // wander
+    var dx = s.target.x - s.x, dy = s.target.y - s.y;
+    if (Math.hypot(dx, dy) < 6){
+      if (s.target.hide){ s.mode = 'hide'; s.modeT = 0.9 + Math.random() * (0.6 + 0.2 * L); return; }
+      var r = Math.random();
+      if (r < 0.28 + 0.07 * L){ s.target = hideSpot(); s.target.hide = true; }
+      else if (r < 0.45 + 0.07 * L){ s.mode = 'pause'; s.modeT = 0.35 + Math.random() * 0.4; s.target = randPoint(); }
+      else s.target = randPoint();
+      return;
+    }
+    move(Math.atan2(dy, dx), base, dt);
+  }
+
+  // ---------- racek ----------
+  function updateGull(dt){
+    if (!gull){
+      if (caught >= 1){ gullIn -= dt; if (gullIn <= 0){
+        var fromLeft = Math.random() < 0.5, y = deck.y + 40 + Math.random() * (deck.h - 80);
+        gull = { x: fromLeft ? deck.x - 20 : deck.x + deck.w + 20, y: y, vx: (fromLeft ? 1 : -1) * (45 + Math.random() * 25), step: 0 };
+      } }
+      return;
+    }
+    gull.x += gull.vx * dt; gull.step += dt * 8;
+    gull.y += Math.sin(gull.step * 0.6) * 12 * dt;
+    if (Math.hypot(gull.x - net.x, gull.y - net.y) < net.r - 6){
+      penalty += 2; prog = 0; flash = 0.4;
+      $('c-msg').textContent = 'Racek tě klovl! −2 s';
+      gull = null; gullIn = 5 + Math.random() * 4; return;
+    }
+    if (gull.x < deck.x - 40 || gull.x > deck.x + deck.w + 40){ gull = null; gullIn = 5 + Math.random() * 4; }
+  }
+
+  // ---------- kresba ----------
+  function drawSea(){
+    ctx.fillStyle = '#0F4C6E'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = '#FFFFFF1c'; ctx.lineWidth = 2;
+    for (var y = 12; y < H; y += 26){
+      ctx.beginPath();
+      for (var x = 0; x <= W; x += 10){ var yy = y + Math.sin((x + t * 30 + y * 3) / 18) * 3; x ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); }
+      ctx.stroke();
+    }
+  }
+  function drawDeck(){
+    var d = deck;
+    // trupy
+    ctx.fillStyle = '#E6ECF2';
+    rr(d.x - 6, d.y - 4, d.w * 0.2, d.h + 8, d.w * 0.1); ctx.fill();
+    rr(d.x + d.w * 0.8 + 6, d.y - 4, d.w * 0.2, d.h + 8, d.w * 0.1); ctx.fill();
+    // paluba
+    ctx.fillStyle = '#D9B98A'; rr(d.x, d.y + d.h * 0.18, d.w, d.h * 0.82, 14); ctx.fill();
+    ctx.strokeStyle = '#00000014'; ctx.lineWidth = 1;
+    for (var y = d.y + d.h * 0.18 + 12; y < d.y + d.h; y += 12){ ctx.beginPath(); ctx.moveTo(d.x + 6, y); ctx.lineTo(d.x + d.w - 6, y); ctx.stroke(); }
+    // síť na přídi
+    ctx.fillStyle = '#FFFFFF22'; ctx.fillRect(d.x + d.w * 0.18, d.y, d.w * 0.64, d.h * 0.18);
+    ctx.strokeStyle = '#FFFFFF55';
+    for (var gx = d.x + d.w * 0.18; gx <= d.x + d.w * 0.82; gx += 9){ ctx.beginPath(); ctx.moveTo(gx, d.y); ctx.lineTo(gx, d.y + d.h * 0.18); ctx.stroke(); }
+    for (var gy = d.y; gy <= d.y + d.h * 0.18; gy += 9){ ctx.beginPath(); ctx.moveTo(d.x + d.w * 0.18, gy); ctx.lineTo(d.x + d.w * 0.82, gy); ctx.stroke(); }
+    // zábradlí
+    ctx.strokeStyle = '#B9C7D3'; ctx.lineWidth = 3;
+    rr(d.x + 2, d.y + 2, d.w - 4, d.h - 4, 16); ctx.stroke();
+  }
+  function drawObstacles(){
+    obstacles.forEach(function(o){
+      ctx.save();
+      ctx.shadowColor = '#00000040'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 3;
+      if (o.type === 'cabin'){
+        ctx.fillStyle = '#F4F7FA'; rr(o.x, o.y, o.w, o.h, 12); ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = '#C9D5DE'; rr(o.x + 8, o.y + 8, o.w - 16, o.h - 16, 8); ctx.fill();
+        ctx.fillStyle = '#22304A'; rr(o.x + o.w / 2 - 14, o.y + o.h - 10, 28, 6, 3); ctx.fill();
+      } else if (o.type === 'keg'){
+        ctx.fillStyle = '#BCC6CF'; ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.strokeStyle = '#8E9AA5'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(o.x, o.y, o.r - 5, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#2A2F36'; ctx.beginPath(); ctx.arc(o.x, o.y, 5, 0, Math.PI * 2); ctx.fill();
+      } else if (o.type === 'crate'){
+        ctx.fillStyle = '#A8763A'; rr(o.x, o.y, o.w, o.h, 4); ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.strokeStyle = '#7A5230'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(o.x + 4, o.y + 4); ctx.lineTo(o.x + o.w - 4, o.y + o.h - 4); ctx.moveTo(o.x + o.w - 4, o.y + 4); ctx.lineTo(o.x + 4, o.y + o.h - 4); ctx.stroke();
+      } else if (o.type === 'mast'){
+        ctx.fillStyle = '#E6ECF2'; ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
+      } else if (o.type === 'ring'){
+        ctx.strokeStyle = '#E4572E'; ctx.lineWidth = 9; ctx.beginPath(); ctx.arc(o.x, o.y, o.r - 4, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 9; ctx.setLineDash([6, 8]); ctx.beginPath(); ctx.arc(o.x, o.y, o.r - 4, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      }
+      ctx.restore();
+    });
+  }
+  function drawSailor(){
+    if (!s) return;
+    ctx.save(); ctx.translate(s.x, s.y); ctx.scale(1.3, 1.3); ctx.rotate(s.dir + Math.PI / 2);
+    if (s.mode === 'dash'){
+      ctx.strokeStyle = '#FFFFFF99'; ctx.lineWidth = 2;
+      for (var k = -1; k <= 1; k++){ ctx.beginPath(); ctx.moveTo(k * 6, 14); ctx.lineTo(k * 6, 26); ctx.stroke(); }
+    }
+    ctx.fillStyle = '#00000030'; ctx.beginPath(); ctx.ellipse(1, 3, 12, 10, 0, 0, Math.PI * 2); ctx.fill();
+    var sw = Math.sin(s.step) * 3;
+    ctx.fillStyle = '#22303A';
+    ctx.beginPath(); ctx.ellipse(-4, 6 + sw, 3, 4, 0, 0, Math.PI * 2); ctx.ellipse(4, 6 - sw, 3, 4, 0, 0, Math.PI * 2); ctx.fill();
+    // tělo s pruhy
+    ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(0, 0, 11, 8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = '#2E5BA8'; for (var y = -8; y < 9; y += 4) ctx.fillRect(-12, y, 24, 2);
+    ctx.restore();
+    // ruce a flaška
+    ctx.fillStyle = '#F1C9A5';
+    ctx.beginPath(); ctx.arc(-11, -3 - sw * .5, 3, 0, Math.PI * 2); ctx.arc(11, -3 + sw * .5, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#B5651D'; rr(10, -15 + sw * .5, 6, 11, 2); ctx.fill();
+    ctx.fillStyle = '#F4EBD0'; ctx.fillRect(10.5, -11 + sw * .5, 5, 3);
+    // hlava a čepice
+    ctx.fillStyle = '#F1C9A5'; ctx.beginPath(); ctx.arc(0, -2, 6.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(0, -2, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1E2F5C'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, -2, 5, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#E4572E'; ctx.beginPath(); ctx.arc(0, -2, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  function drawGull(){
+    if (!gull) return;
+    ctx.save(); ctx.translate(gull.x, gull.y); ctx.scale(gull.vx > 0 ? 1 : -1, 1);
+    var f = Math.sin(gull.step) * 3;
+    ctx.fillStyle = '#00000025'; ctx.beginPath(); ctx.ellipse(2, 4, 13, 7, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#9AA6B2';
+    ctx.beginPath(); ctx.ellipse(-2, -7 - f, 9, 4, -0.3, 0, Math.PI * 2); ctx.ellipse(-2, 7 + f, 9, 4, 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.ellipse(0, 0, 12, 6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, 0, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#FFC93C'; ctx.beginPath(); ctx.moveTo(14, -1.5); ctx.lineTo(20, 0); ctx.lineTo(14, 1.5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(11, -2, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  function drawNet(){
+    ctx.save();
+    ctx.strokeStyle = '#7A5230'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(net.x + net.r * 0.7, net.y + net.r * 0.7); ctx.lineTo(net.x + net.r * 1.6, net.y + net.r * 1.6); ctx.stroke();
+    ctx.beginPath(); ctx.arc(net.x, net.y, net.r, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFFFFF1a'; ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.strokeStyle = '#FFFFFF66'; ctx.lineWidth = 1;
+    for (var k = -net.r; k <= net.r; k += 8){
+      ctx.beginPath(); ctx.moveTo(net.x + k - net.r, net.y - net.r); ctx.lineTo(net.x + k + net.r, net.y + net.r); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(net.x + k + net.r, net.y - net.r); ctx.lineTo(net.x + k - net.r, net.y + net.r); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = '#7A5230'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(net.x, net.y, net.r, 0, Math.PI * 2); ctx.stroke();
+    if (prog > 0){
+      ctx.strokeStyle = '#FFC93C'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(net.x, net.y, net.r + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, prog)); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function drawSay(){
+    if (!s || s.sayT <= 0 || !s.say) return;
+    var F1 = '700 12px "Bricolage Grotesque", ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif';
+    var F2 = 'italic 500 11px "Bricolage Grotesque", ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif';
+    ctx.font = F1; var w1 = ctx.measureText(s.say[0]).width;
+    ctx.font = F2; var w2 = ctx.measureText(s.say[1]).width;
+    var w = Math.max(w1, w2) + 16, h = 34, x = clamp(s.x, w / 2 + 4, W - w / 2 - 4), y = Math.max(h / 2 + 4, s.y - 34);
+    ctx.fillStyle = '#FFFFFF'; rr(x - w / 2, y - h / 2, w, h, 11); ctx.fill();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = F1; ctx.fillStyle = '#1E1A2E'; ctx.fillText(s.say[0], x, y - 7);
+    ctx.font = F2; ctx.fillStyle = '#5A5470'; ctx.fillText(s.say[1], x, y + 8);
+  }
+  function drawHud(){
+    var left = Math.max(0, DURATION - elapsed - penalty);
+    ctx.font = '800 15px "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif';
+    var txt = Math.ceil(left) + ' s', w = ctx.measureText(txt).width + 18;
+    ctx.fillStyle = flash > 0 ? '#E0485E' : left <= 10 ? '#E0485E' : '#140F3Ad9';
+    rr(W - w - 10, 10, w, 26, 13); ctx.fill();
+    ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, W - w / 2 - 10, 23.5);
+    ctx.fillStyle = '#140F3Ad9'; rr(10, 10, NEED * 18 + 12, 26, 13); ctx.fill();
+    for (var i = 0; i < NEED; i++){
+      ctx.beginPath(); ctx.arc(25 + i * 18, 23, 6, 0, Math.PI * 2);
+      ctx.fillStyle = i < caught ? '#FFC93C' : '#FFFFFF33'; ctx.fill();
+    }
+  }
+  function draw(){
+    drawSea(); drawDeck();
+    var hid = s && hidden(s);
+    if (hid) drawSailor();
+    drawObstacles();
+    if (!hid) drawSailor();
+    drawGull();
+    if (mode === 'play') drawNet();
+    drawSay();
+    if (mode !== 'setup') drawHud();
+  }
+
+  // ---------- průběh ----------
+  function scoreline(){
+    $('c-scoreline').innerHTML = best ? '<span>Rekord <b>' + best.toFixed(1).replace('.', ',') + ' s</b></span>' : '';
+  }
+  function show(html){ overlay.innerHTML = html; overlay.hidden = false; overlay.classList.remove('count'); }
+
+  function update(dt){
+    elapsed += dt; flash = Math.max(0, flash - dt);
+    if (keys.ArrowLeft) net.tx -= 380 * dt;
+    if (keys.ArrowRight) net.tx += 380 * dt;
+    if (keys.ArrowUp) net.ty -= 380 * dt;
+    if (keys.ArrowDown) net.ty += 380 * dt;
+    net.tx = clamp(net.tx, 0, W); net.ty = clamp(net.ty, 0, H);
+    var k = Math.min(1, dt * 14);
+    net.x += (net.tx - net.x) * k; net.y += (net.ty - net.y) * k;
+
+    updateSailor(dt);
+    updateGull(dt);
+
+    var over = Math.hypot(net.x - s.x, net.y - s.y) < net.r - 4 && !hidden(s);
+    if (over) prog += dt / HOLD; else prog = Math.max(0, prog - dt * 1.6);
+    if (prog >= 1){
+      caught++; prog = 0;
+      if (caught >= NEED) return win();
+      $('c-msg').textContent = 'Mám ho! ' + caught + '/' + NEED + '. Zase utekl a je rychlejší.';
+      spawnSailor();
+    }
+    if (elapsed + penalty >= DURATION) lose();
+  }
+
+  function win(){
+    mode = 'over';
+    var time = elapsed + penalty, rec = !best || time < best;
+    if (rec){ best = time; try { localStorage.setItem('katamaran-chyt-best', best); } catch(e){} }
+    scoreline(); draw();
+    $('c-msg').textContent = 'Chycen! Rum je zpátky na palubě.';
+    setTimeout(function(){
+      show('<p class="ov-title">Rum je zachráněn! 🍾</p>' +
+        '<p class="ov-note">Chytil jsi ho ' + NEED + '× za ' + time.toFixed(1).replace('.', ',') + ' s' + (rec ? ', nový rekord!' : '.') + '</p>' +
+        '<div class="ov-row"><button type="button" data-act="start">Znovu</button></div>');
+    }, 500);
+  }
+  function lose(){
+    mode = 'over'; draw();
+    $('c-msg').textContent = 'Utekl ti i s rumem!';
+    setTimeout(function(){
+      show('<p class="ov-title">Utekl ti i s rumem!</p>' +
+        '<p class="ov-note">Chytil jsi ho ' + caught + '× z ' + NEED + '.</p>' +
+        '<div class="ov-row"><button type="button" data-act="start">Zkusit znovu</button></div>');
+    }, 400);
+  }
+
+  function setupScreen(){
+    clearInterval(iv);
+    mode = 'setup'; caught = 0; prog = 0; elapsed = 0; penalty = 0; gull = null;
+    net.x = net.tx = W / 2; net.y = net.ty = H * 0.8;
+    spawnSailor(); s.x = W / 2; s.y = H * 0.3;
+    $('c-msg').textContent = '';
+    scoreline(); draw();
+    show('<p class="ov-title">Chyť Hasbullu</p>' +
+      '<p class="ov-note">Táhni síťku prstem (na počítači myší nebo šipkami). Musíš ji nad ním udržet chvilku, než se chytí. Za překážkami ho nechytíš. Pozor na racka.</p>' +
+      '<button type="button" data-act="start">Začít</button>');
+  }
+
+  function begin(){
+    caught = 0; prog = 0; elapsed = 0; penalty = 0; gull = null; gullIn = 6;
+    net.x = net.tx = W / 2; net.y = net.ty = deck.y + deck.h * 0.85;
+    spawnSailor();
+    $('c-msg').textContent = '';
+    draw();
+    var n = 3;
+    overlay.classList.add('count');
+    overlay.innerHTML = '<p class="ov-count">3</p>'; overlay.hidden = false;
+    clearInterval(iv);
+    iv = setInterval(function(){
+      n--;
+      if (n > 0){ overlay.innerHTML = '<p class="ov-count">' + n + '</p>'; return; }
+      clearInterval(iv);
+      overlay.hidden = true; overlay.classList.remove('count');
+      stage.focus({ preventScroll: true });
+      mode = 'play'; last = 0;
+    }, 600);
+  }
+
+  overlay.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.act === 'start') begin();
+  });
+
+  function setNet(e){ var r = canvas.getBoundingClientRect(); net.tx = e.clientX - r.left; net.ty = e.clientY - r.top; }
+  canvas.addEventListener('pointerdown', function(e){
+    if (mode !== 'play') return;
+    e.preventDefault();
+    try { canvas.setPointerCapture(e.pointerId); } catch(_){}
+    setNet(e);
+  });
+  canvas.addEventListener('pointermove', function(e){
+    if (mode !== 'play') return;
+    if (e.pointerType === 'mouse' || e.buttons || e.pressure > 0) setNet(e);
+  });
+  canvas.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  stage.addEventListener('keydown', function(e){ if (e.key.indexOf('Arrow') === 0){ keys[e.key] = true; e.preventDefault(); } });
+  stage.addEventListener('keyup', function(e){ if (e.key.indexOf('Arrow') === 0){ keys[e.key] = false; } });
+
+  function tick(now){
+    var dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
+    last = now; t += dt;
+    if (mode === 'play'){ update(dt); if (mode === 'play') draw(); }
+    else if (s && s.sayT > 0){ s.sayT -= dt; }
+    requestAnimationFrame(tick);
+  }
+
+  window.addEventListener('resize', resize);
+  if (window.ResizeObserver) new ResizeObserver(function(){ resize(); }).observe(stage);
+  $('chyt').addEventListener('close', function(){ setupScreen(); });
+  resize();
+  setupScreen();
   requestAnimationFrame(tick);
 })();
 </script>
