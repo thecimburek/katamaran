@@ -112,7 +112,9 @@ body{margin:0;background:var(--bg);color:var(--ink);
 .badge{flex:none;font-weight:700;font-size:.88rem;padding:5px 14px;border-radius:999px;min-width:56px;text-align:center}
 .b-yes{background:var(--yes);color:#fff}
 .b-no{background:var(--no-soft);color:var(--no)}
-.roster h2{margin-bottom:8px}
+.roster-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.reset{font:inherit;font-weight:600;font-size:.88rem;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.reset:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .roster ul{list-style:none;margin:0;padding:0}
 .row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
 .row:first-child{border-top:0}
@@ -329,7 +331,10 @@ body{margin:0;background:var(--bg);color:var(--ink);
     var rows = people.map(function(p, i){
       return '<li class="row"><span class="chip" style="background:'+SHIRTS[i % SHIRTS.length]+'">'+esc(initials(p.name))+'</span>' +
         '<span class="nm">'+esc(p.name)+'</span>' +
-        '<span class="badge ' + (p.yes ? 'b-yes' : 'b-no') + '">' + (p.yes ? 'ANO' : 'NE') + '</span></li>';
+        '<div class="seg" role="group" aria-label="Hlas: '+esc(p.name)+'">' +
+        '<button type="button" data-i="'+i+'" data-v="1" data-focus="y'+i+'" aria-pressed="'+p.yes+'">ANO</button>' +
+        '<button type="button" data-i="'+i+'" data-v="0" data-focus="n'+i+'" aria-pressed="'+(!p.yes)+'">NE</button>' +
+        '</div></li>';
     }).join('');
 
     root.innerHTML =
@@ -351,8 +356,9 @@ body{margin:0;background:var(--bg);color:var(--ink);
           PALM +
         '</div>' +
       '</section>' +
-      '<section class="roster"><h2>Kdo jede?</h2>' +
-      
+      '<section class="roster"><div class="roster-head"><h2>Kdo jede?</h2>' +
+      (changed ? '<button type="button" class="reset" data-reset="1">Vrátit skutečné hlasy</button>' : '') + '</div>' +
+      '<p class="status">' + (changed ? 'Zkoušíš si to nanečisto. Změny vidíš jen ty a po obnovení stránky zmizí.' : 'Klikni na ANO nebo NE a uvidíš, jak se kluci přesunou. Nic se neukládá.') + '</p>' +
       '<ul>' + rows + '</ul></section>';
 
     if (focused){
@@ -362,11 +368,22 @@ body{margin:0;background:var(--bg);color:var(--ink);
   }
 
 
+  var ORIGINAL = JSON.stringify(state);
+  var changed = false;
+
   root.addEventListener('click', function(ev){
     var b = ev.target.closest('button');
     if (!b) return;
     if (b.dataset.shout !== undefined){
       var i = +b.dataset.shout; phraseShift[i] = (phraseShift[i] || 0) + 1; render(); return;
+    }
+    if (b.dataset.reset){
+      state = JSON.parse(ORIGINAL); changed = false; render(); return;
+    }
+    if (b.dataset.i !== undefined){
+      var p = state.people[+b.dataset.i], v = b.dataset.v === '1';
+      if (p.yes === v) return;
+      p.yes = v; changed = JSON.stringify(state) !== ORIGINAL; render();
     }
   });
 
